@@ -1,4 +1,2 @@
-Flask==2.2.*
-Flask-SQLAlchemy==3.0.*
-SQLAlchemy==2.0.*
-Blinker==1.5
+Flask
+pandas

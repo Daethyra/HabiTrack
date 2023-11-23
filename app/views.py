@@ -1,45 +1,62 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash
-from app import db
-from app.models import Project
+from typing import Any
+from flask import request, jsonify, render_template
+import sqlite3
+import pandas as pd
+from app import app, get_db_connection
 
-bp = Blueprint('views', __name__)
+# Function to determine emoji
+def determine_emoji(level: int) -> str:
+    emoji_map = {0: '✅', 1: '🤘🏼', 2: '⚠️', 3: '🛑'}
+    return emoji_map.get(level, '❓')
 
-@bp.route('/', methods=['GET', 'POST'])
+# Route for landing page
+@app.route('/')
 def index():
-    if request.method == 'POST':
-        project_description = request.form['description']
-        if project_description:
-            project = Project(description=project_description)
-            db.session.add(project)
-            db.session.commit()
-            flash('Project added successfully!', 'success')
-        else:
-            flash('Description cannot be empty', 'danger')
-        return redirect(url_for('views.index'))
+    return render_template('index.html')
 
-    projects = Project.query.all()
-    return render_template('index.html', projects=projects)
+# Route for fetching the last 7 days of data
+@app.route('/get_data', methods=['GET'])
+def get_data() -> Any:
+    conn = get_db_connection()
+    data = pd.read_sql_query('SELECT * FROM habits ORDER BY date DESC LIMIT 7', conn)
+    conn.close()
+    return jsonify(data.to_dict(orient='records'))
 
-@bp.route('/activate/<int:id>')
-def activate(id):
-    project = Project.query.get_or_404(id)
-    project.status = 'active'
-    db.session.commit()
-    flash('Project activated', 'success')
-    return redirect(url_for('views.index'))
+# Route for adding a new entry
+@app.route('/add_entry', methods=['POST'])
+def add_entry() -> Any:
+    data = request.json
+    date = data.get('date')
+    level = data.get('level')
 
-@bp.route('/deactivate/<int:id>')
-def deactivate(id):
-    project = Project.query.get_or_404(id)
-    project.status = 'inactive'
-    db.session.commit()
-    flash('Project deactivated', 'warning')
-    return redirect(url_for('views.index'))
+    if not date or level is None:
+        return jsonify({'status': 'error', 'message': 'Missing date or level'}), 400
 
-@bp.route('/delete/<int:id>')
-def delete(id):
-    project = Project.query.get_or_404(id)
-    db.session.delete(project)
-    db.session.commit()
-    flash('Project deleted', 'danger')
-    return redirect(url_for('views.index'))
+    try:
+        level_int = int(level)
+    except ValueError:
+        return jsonify({'status': 'error', 'message': 'Invalid level format'}), 400
+
+    emoji = determine_emoji(level_int)
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('INSERT INTO habits (date, smoking_level, emoji) VALUES (?, ?, ?)', (date, level_int, emoji))
+            conn.commit()
+    except sqlite3.IntegrityError:
+        return jsonify({'status': 'error', 'message': 'Entry for this date already exists'}), 409
+
+    return jsonify({'status': 'success'})
+
+# Route for exporting data to Excel
+@app.route('/export', methods=['GET'])
+def export_data() -> Any:
+    try:
+        conn = get_db_connection()
+        data = pd.read_sql_query('SELECT * FROM habits', conn)
+        conn.close()
+        export_file = 'smoking_habits.xlsx'
+        data.to_excel(export_file, index=False)
+        return jsonify({'status': 'success', 'file': export_file})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
