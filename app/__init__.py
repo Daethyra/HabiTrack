@@ -1,21 +1,30 @@
 from flask import Flask
-from flask_sqlalchemy import SQLAlchemy
-from flask_migrate import Migrate
-from app.logger import configure_logger
+import sqlite3
 
-db = SQLAlchemy()
-migrate = Migrate()
+# Initialize the Flask application
+app = Flask(__name__)
 
-def create_app():
-    app = Flask(__name__)
-    app.config.from_pyfile('../config.py')
+# Database file path
+DATABASE = 'smoking_habits.db'
 
-    db.init_app(app)
-    migrate.init_app(app, db)
+# Function to get database connection
+def get_db_connection():
+    conn = sqlite3.connect(DATABASE)
+    conn.row_factory = sqlite3.Row
+    return conn
 
-    configure_logger(app)
+# Initialize database
+def init_db() -> None:
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''CREATE TABLE IF NOT EXISTS habits (
+                            date TEXT PRIMARY KEY,
+                            smoking_level INTEGER,
+                            emoji TEXT)''')
+        conn.commit()
 
-    from app import views
-    app.register_blueprint(views.bp)
+# Import the routes from views.py
+from app import views
 
-    return app
+# Initialize the database
+init_db()
